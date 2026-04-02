@@ -1,0 +1,62 @@
+name: Deploy Glue Job
+
+on:
+  workflow_run:
+    workflows: ["Deploy Glue Jobs"]   # must match exact name
+    types:
+      - completed
+
+env:
+  AWS_REGION: us-east-1
+  S3_BUCKET: regularpython-batch-realestate
+  GLUE_JOB_NAME: bronze-layer-job
+  IAM_ROLE: GlueTest  # change if needed
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Check Glue Job Exists
+        id: check_job
+        run: |
+          if aws glue get-job --job-name ${GLUE_JOB_NAME} 2>/dev/null; then
+            echo "job_exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "job_exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      # 🔹 Step 5: Create Glue Job (Only if NOT exists)
+      - name: Create Glue Job
+        if: steps.check_job.outputs.job_exists == 'false'
+        run: |
+          aws glue create-job \
+            --name ${GLUE_JOB_NAME} \
+            --role ${IAM_ROLE} \
+            --command '{
+              "Name": "glueetl",
+              "ScriptLocation": "s3://'${S3_BUCKET}'/bronze_layer.py",
+              "PythonVersion": "3"
+            }' \
+            --default-arguments '{
+              "--extra-py-files": "s3://'${S3_BUCKET}'/src.zip",
+              "--job-language": "python"
+            }' \
+            --glue-version "4.0" \
+            --worker-type "G.1X" \
+            --number-of-workers 2
+
+      # 🔹 Step 6: Log Result
+      - name: Final Status
+        run: |
+          echo "Glue deployment completed 🚀"

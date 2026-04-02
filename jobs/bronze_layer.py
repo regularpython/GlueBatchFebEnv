@@ -17,4 +17,4 @@ print(source_path)
 print(target_path)
 print("Name: ", name)
 
-
+print("Automation script added")
